@@ -1,0 +1,85 @@
+const express = require('express');
+const mysql = require('mysql');
+const bodyParser = require('body-parser');
+
+const app = express();
+const port = 3000;
+
+// MySQL connection configuration
+const connection = mysql.createConnection({
+  host: 'localhost',
+  user: 'your_username',
+  password: 'your_password',
+  database: 'your_database'
+});
+
+// Connect to MySQL
+connection.connect((err) => {
+  if (err) {
+    console.error('Error connecting to MySQL: ', err);
+    return;
+  }
+  console.log('Connected to MySQL.');
+});
+
+// Parse JSON request body
+app.use(bodyParser.json());
+
+// Add Customer API endpoint
+app.post('/api/customers', (req, res) => {
+  const { name, phoneNumber } = req.body;
+
+  // Input parameter validation
+  if (!name || !phoneNumber) {
+    return res.status(400).json({ error: 'Name and phoneNumber are required.' });
+  }
+
+  // Check for duplicate phone number
+  connection.query('SELECT * FROM customers WHERE phoneNumber = ?', [phoneNumber], (err, results) => {
+    if (err) {
+      console.error('Error checking for duplicate phone number: ', err);
+      return res.status(500).json({ error: 'Internal server error.' });
+    }
+
+    if (results.length > 0) {
+      return res.status(409).json({ error: 'Phone number already exists.' });
+    }
+
+    // Start a transaction
+    connection.beginTransaction((err) => {
+      if (err) {
+        console.error('Error starting transaction: ', err);
+        return res.status(500).json({ error: 'Internal server error.' });
+      }
+
+      // Insert customer data
+      const customer = { name, phoneNumber };
+      connection.query('INSERT INTO customers SET ?', customer, (err, insertResult) => {
+        if (err) {
+          console.error('Error inserting customer: ', err);
+          connection.rollback(() => {
+            res.status(500).json({ error: 'Internal server error.' });
+          });
+        } else {
+          // Commit the transaction
+          connection.commit((err) => {
+            if (err) {
+              console.error('Error committing transaction: ', err);
+              connection.rollback(() => {
+                res.status(500).json({ error: 'Internal server error.' });
+              });
+            } else {
+              console.log('Customer added successfully:', insertResult.insertId);
+              res.status(200).json({ message: 'Customer added successfully.' });
+            }
+          });
+        }
+      });
+    });
+  });
+});
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
